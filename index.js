@@ -3,11 +3,11 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const ed25519 = require('ed25519');
 const request = require('request');
+const cbor = require('cbor')
 const submit = require('./submitter/dpt-admin.js');
 const app = express();
-const port = process.env.PORT || 8020
+const port = process.env.PORT || 3000
 const dptNode = process.argv[2];
-
 if (!dptNode) throw("Please specify the node (node index host:port)");
 
 app.use(bodyParser.json());
@@ -19,6 +19,10 @@ const pk = new Buffer(privateKey, 'hex');
 const p = new Buffer(publicKey, 'hex');
 
 // TODO mutual auth
+//
+app.get('/', (req, res) => {
+  res.send('Evote');
+});
 
 app.post('/api/register', function(req, res) {
   if (!req.body.r) return res.send({error : 'r is required'});
@@ -48,5 +52,24 @@ app.post('/api/register', function(req, res) {
   });
 });
 
+app.get('/api/transactions', (req, res) => {
+  request.get({uri: 'http://' + dptNode + '/transactions'}, (err, resp) => {
+    console.log(JSON.parse(resp.body).data.length);
+    res.send(JSON.parse(resp.body));
+  });
+});
+
+app.get('/api/state/:id', (req, res) => {
+  request.get({uri: 'http://' + dptNode + '/state/' + req.params.id}, (err, resp) => {
+    if (err) return res.send({error : err});
+    let body = JSON.parse(resp.body);
+    let data = body.data;
+    let buf = Buffer.from(data, 'base64');
+    let decoded = cbor.decode(buf);
+    decoded['head'] = body.head;
+    res.send(decoded);
+  });
+});
+
 app.listen(port);
-console.log('DPT signer started on port ' + port + ' against node ' + dptNode);
+console.log('Evote server started on port ' + port + ' against node ' + dptNode);
