@@ -2,8 +2,10 @@ const fs = require('fs');
 const express = require('express');
 const bodyParser = require('body-parser');
 const ed25519 = require('ed25519');
+const submit = require('./submitter/dpt-admin.js');
 const app = express();
 const port = process.env.PORT || 8020
+const dptNode = process.argv[2];
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({extended:true}));
@@ -19,9 +21,15 @@ app.post('/api/register', function(req, res) {
   // TODO 
   // - set the voter to 'ready' on DPT ledger
   // - 
-  const msg = new Buffer(req.body.r);
-  const signature = ed25519.Sign(msg, { privateKey: pk, publicKey: p });
-  res.send({k : req.body.r + signature.toString('base64')});
+  submit({voterId : req.body.r, verb : 'ready', node : dptNode})
+  .then((result) => {
+    const msg = new Buffer(req.body.r);
+    const signature = ed25519.Sign(msg, { privateKey: pk, publicKey: p });
+    res.send({k : req.body.r + signature.toString('base64')});
+  })
+  .catch((err) => {
+    res.send({error : err});
+  });
 });
 
 app.listen(port);
