@@ -1,0 +1,16 @@
+{
+  "name": "sawtooth-evote-dpt-signer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Herpiko Dwi Aguno <herpiko@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "body-parser": "^1.18.3",
+    "ed25519": "^0.0.4",
+    "express": "^4.16.3"
+  }
+}
