@@ -1,5 +1,5 @@
 {
-  "name": "sawtooth-evote-dpt-signer",
+  "name": "sawtooth-evote-server",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
