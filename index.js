@@ -33,7 +33,7 @@ app.post('/api/register', function(req, res) {
         if (err) return res.send({error : err});
         if (JSON.parse(response.body).data[0].status != 'COMMITTED') {
           console.log(response.body);
-          return res.send({error : 'Not commited yet, url : ' + JSON.parse(result).link});
+          return res.send({error : JSON.parse(response.body).data[0].invalid_transactions[0].message});
         }
         console.log(JSON.parse(response.body).data[0].status);
         const msg = new Buffer(req.body.r);

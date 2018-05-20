@@ -1,1 +1,1 @@
-node index.js $(docker ps | grep tps1 | cut -d' ' -f 1):8008
+node index.js $(docker ps | grep 'province-dpt-1' | cut -d' ' -f 1):8008
