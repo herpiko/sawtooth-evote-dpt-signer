@@ -1,4 +1,5 @@
 const fs = require('fs');
+const {createHash} = require('crypto')
 const express = require('express');
 const bodyParser = require('body-parser');
 const ed25519 = require('ed25519');
@@ -19,37 +20,92 @@ const pk = new Buffer(privateKey, 'hex');
 const p = new Buffer(publicKey, 'hex');
 
 // TODO mutual auth
-//
+
+const dump = (filter) => {
+  return new Promise((resolve, reject) => {
+    // In real world, this handled by dedicated driver
+    // See : https://sawtooth.hyperledger.org/docs/core/releases/1.0/app_developers_guide/event_subscriptions.html
+    let obj = {
+      data : [],
+      total : 0,
+    }
+    let next = true;
+    let promises = [];
+    let nextUrl;
+  
+    var get = (next) => {
+      let uri = next || 'http://' + dptNode + '/transactions?limit=100';
+      console.log('Fetching ' + uri);
+      request.get({uri: uri}, (err, resp) => {
+        if (err) return j(err);
+        let body = JSON.parse(resp.body);
+        if (body.data && body.data.length > 0) {
+          obj.total += body.data.length;
+          for (var i in body.data) {
+            let item = {};
+            item['ledger'] = body.data[i].header.family_name;
+            item['stateId'] = body.data[i].header.inputs[0];
+            let buf = Buffer.from(body.data[i].payload, 'base64');
+            let decoded = cbor.decode(buf);
+            item['state'] = decoded.Value
+            obj.data.push(item);
+          }
+        }
+        if (body.paging && body.paging.next) {
+          get(body.paging.next);
+        } else {
+          next = false;
+          resolve(obj);
+        }
+      });
+    }
+    get();
+  });
+}
+
 app.get('/', (req, res) => {
   res.send('Evote');
 });
 
-app.post('/api/register', (req, res) => { // Restricted to DPT
+app.post('/api/activate', (req, res) => { // Restricted to DPT
   if (!req.body.r) return res.send({error : 'r is required'});
   if (!req.body.voterId) return res.send({error : 'voterId is required'});
-  if (req.body.r.length != 16) return res.send({error : 'The length of random unique string must be 16'});
-  console.log('Updating state for ' + req.body.voterId + '...');
-  submit({voterId : req.body.voterId, verb : 'ready', node : dptNode})
-  .then((result) => {
-    console.log('Getting batches status on ' + JSON.parse(result).link + '...');
-    setTimeout(() => { // wait a sec
-      request.get({uri:JSON.parse(result).link}, (err, response) => {
-        if (err) return res.send({error : err});
-        if (JSON.parse(response.body).data[0].status != 'COMMITTED') {
-          console.log(response.body);
-          return res.send({error : JSON.parse(response.body).data[0].invalid_transactions[0].message});
-        }
-        console.log(JSON.parse(response.body).data[0].status);
-        const msg = new Buffer(req.body.r);
-        const signature = ed25519.Sign(msg, { privateKey: pk, publicKey: p });
-        console.log('k value for ' + req.body.voterId + ' : ' + req.body.r + signature.toString('base64'));
-        res.send({k : req.body.r + signature.toString('base64')});
-      });
-    }, 1000);
-  })
-  .catch((err) => {
-    res.send({error : err});
+  if (req.body.r.length != 44) return res.send({error : 'The length of random unique string must be 44'});
+
+
+  const nameHash = createHash('sha512')
+    .update(createHash('sha256').update(req.body.voterId).digest('hex'))
+    .digest('hex');
+  const familyNameHash = createHash('sha512').update('provinceDPT').digest('hex');
+  const stateId = familyNameHash.substr(0,6) + nameHash.substr(-64);
+
+  request.get({url:'http://' + dptNode + '/state/' + stateId}, (err, response) => {
+    if (err) return res.send(err);
+    let body = JSON.parse(response.body); 
+    let buf = Buffer.from(body.data, 'base64');
+    let decoded = cbor.decode(buf);
+    if (decoded[Object.keys(decoded)[0]] === 'ready') return res.send({status : 'ALREADY_ACTIVATED'});
+    if (decoded[Object.keys(decoded)[0]] !== 'registered') return res.send({status : 'NOT_REGISTERED'});
+    submit({voterId : req.body.voterId, verb : 'ready', node : dptNode})
+    .then((result) => {
+      if (result.status !== 'COMMITTED') {
+        res.send(result);
+        return;
+      }
+      const msg = new Buffer(req.body.r);
+      const signature = ed25519.Sign(msg, { privateKey: pk, publicKey: p });
+      console.log('signed key value for ' + req.body.voterId + ' : ' + req.body.r + signature.toString('base64'));
+      let obj = {signedKey : req.body.r + signature.toString('base64'), status : 'READY'};
+      res.send(obj);
+    })
+    .catch((err) => {
+      console.log(err);
+      res.send({error : err});
+    });
   });
+
+
+
 });
 
 app.get('/api/dpt-transactions', (req, res) => { // Restricted to admin
@@ -60,43 +116,10 @@ app.get('/api/dpt-transactions', (req, res) => { // Restricted to admin
 });
 
 app.get('/api/dpt-dump', (req, res) => { // Restricted to admin
-  // In real world, this handled by dedicated driver
-  // See : https://sawtooth.hyperledger.org/docs/core/releases/1.0/app_developers_guide/event_subscriptions.html
-  let obj = {
-    data : [],
-    total : 0,
-  }
-  let next = true;
-  let promises = [];
-  let nextUrl;
-
-  var get = (next) => {
-    let uri = next || 'http://' + dptNode + '/transactions?limit=100';
-    console.log('Fetching ' + uri);
-    request.get({uri: uri}, (err, resp) => {
-      if (err) return j(err);
-      let body = JSON.parse(resp.body);
-      if (body.data && body.data.length > 0) {
-        obj.total += body.data.length;
-        for (var i in body.data) {
-          let item = {};
-          item['ledger'] = body.data[i].header.family_name;
-          item['stateId'] = body.data[i].header.inputs[0];
-          let buf = Buffer.from(body.data[i].payload, 'base64');
-          let decoded = cbor.decode(buf);
-          item['state'] = decoded.Value
-          obj.data.push(item);
-        }
-      }
-      if (body.paging && body.paging.next) {
-        get(body.paging.next);
-      } else {
-        next = false;
-        res.send(obj);
-      }
-    });
-  }
-  get();
+  dump()
+  .then((result) => {
+    res.send(result);
+  });
 });
 
 app.get('/api/dpt-state/:id', (req, res) => {
