@@ -9,6 +9,7 @@ const submit = require('./submitter/dpt-admin.js');
 const app = express();
 const port = process.env.PORT || 3000
 const dptNode = process.argv[2];
+const https = require('https');
 if (!dptNode) throw("Please specify the node (node index host:port)");
 
 app.use(bodyParser.json());
@@ -37,7 +38,7 @@ const dump = (filter) => {
       let uri = next || 'http://' + dptNode + '/transactions?limit=100';
       console.log('Fetching ' + uri);
       request.get({uri: uri}, (err, resp) => {
-        if (err) return j(err);
+        if (err) return reject(err);
         let body = JSON.parse(resp.body);
         if (body.data && body.data.length > 0) {
           obj.total += body.data.length;
@@ -133,7 +134,7 @@ app.post('/api/activate', (req, res) => { // Restricted to DPT
 
 app.get('/api/dpt-transactions', (req, res) => { // Restricted to admin
   request.get({uri: 'http://' + dptNode + '/transactions'}, (err, resp) => {
-    if (!resp.body) {
+    if (!resp || !resp.body) {
       res.send({});
       return;
     }
@@ -163,5 +164,15 @@ app.get('/api/dpt-state/:id', (req, res) => {
   });
 });
 
-app.listen(port);
+// SSL keys
+const options = {
+  key : fs.readFileSync('./certs/KPU_Machines/EvoteServer/evote-server.skripsi.local.plain.key'),
+  cert : fs.readFileSync('./certs/KPU_Machines/EvoteServer/evote-server.skripsi.local.pem'),
+  ca : fs.readFileSync('./certs/CA/KPUIntermediateCA-chain.pem'),
+  requestCert : true,
+}
+
+var httpsServer = https.createServer(options, app);
+httpsServer.listen(3443);
+
 console.log('Evote server started on port ' + port + ' against ledger ' + dptNode);
