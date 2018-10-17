@@ -1,3 +1,0 @@
-[submodule "submitter"]
-	path = submitter
-	url = git@github.com:herpiko/sawtooth-evote-submitter.git

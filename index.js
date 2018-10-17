@@ -5,7 +5,7 @@ const bodyParser = require('body-parser');
 const ed25519 = require('ed25519');
 const request = require('request');
 const cbor = require('cbor')
-const submit = require('./submitter/dpt-admin.js');
+const submit = require('../sawtooth-evote-submitter/dpt-admin.js');
 const app = express();
 const port = process.env.PORT || 3000
 const dptNode = process.argv[2];
@@ -42,8 +42,12 @@ const dump = (filter) => {
         if (body.data && body.data.length > 0) {
           obj.total += body.data.length;
           for (var i in body.data) {
+            // Ignore sawtooth related families
+            if (body.data[i].header.family_name === 'sawtooth_settings') {
+              continue;
+            }
             let item = {};
-            item['ledger'] = body.data[i].header.family_name;
+            item['familyName'] = body.data[i].header.family_name;
             item['stateId'] = body.data[i].header.inputs[0];
             let buf = Buffer.from(body.data[i].payload, 'base64');
             let decoded = cbor.decode(buf);
@@ -71,6 +75,7 @@ app.post('/api/activate', (req, res) => { // Restricted to DPT
   if (!req.body.r) return res.send({error : 'r is required'});
   if (!req.body.voterId) return res.send({error : 'voterId is required'});
   if (req.body.r.length != 44) return res.send({error : 'The length of random unique string must be 44'});
+  console.log(req.body);
 
 
   const nameHash = createHash('sha512')
@@ -78,6 +83,8 @@ app.post('/api/activate', (req, res) => { // Restricted to DPT
     .digest('hex');
   const familyNameHash = createHash('sha512').update('provinceDPT').digest('hex');
   const stateId = familyNameHash.substr(0,6) + nameHash.substr(-64);
+  console.log('------------------------------');
+  console.log(stateId);
 
   request.get({url:'http://' + dptNode + '/state/' + stateId}, (err, response) => {
     if (err) return res.send(err);
