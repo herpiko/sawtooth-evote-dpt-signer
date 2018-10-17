@@ -5,7 +5,7 @@ const bodyParser = require('body-parser');
 const ed25519 = require('ed25519');
 const request = require('request');
 const cbor = require('cbor')
-const submit = require('../sawtooth-evote-submitter/dpt-admin.js');
+const submit = require('./submitter/dpt-admin.js');
 const app = express();
 const port = process.env.PORT || 3000
 const dptNode = process.argv[2];
@@ -44,6 +44,7 @@ const dump = (filter) => {
           for (var i in body.data) {
             // Ignore sawtooth related families
             if (body.data[i].header.family_name === 'sawtooth_settings') {
+              obj.total--;
               continue;
             }
             let item = {};
@@ -68,7 +69,12 @@ const dump = (filter) => {
 }
 
 app.get('/', (req, res) => {
-  res.send('Evote');
+  let body = 'Evote<br/>Target ledger : ' + dptNode;
+  body += '<ul>';
+  body += '<li><a href="/api/dpt-transactions">DPT transactions</a></li>';
+  body += '<li><a href="/api/dpt-dump">DPT dump</a></li>';
+  body += '</ul>';
+  res.send(body);
 });
 
 app.post('/api/activate', (req, res) => { // Restricted to DPT
@@ -83,19 +89,32 @@ app.post('/api/activate', (req, res) => { // Restricted to DPT
     .digest('hex');
   const familyNameHash = createHash('sha512').update('provinceDPT').digest('hex');
   const stateId = familyNameHash.substr(0,6) + nameHash.substr(-64);
-  console.log('------------------------------');
   console.log(stateId);
 
   request.get({url:'http://' + dptNode + '/state/' + stateId}, (err, response) => {
     if (err) return res.send(err);
+    if (!response.body) return res.send('invalid state id');
     let body = JSON.parse(response.body); 
-    let buf = Buffer.from(body.data, 'base64');
+    let buf;
+    try {
+      buf = Buffer.from(body.data, 'base64');
+    } catch(e) {
+      return res.send({status : 'NOT_REGISTERED'});
+    }
     let decoded = cbor.decode(buf);
-    if (decoded[Object.keys(decoded)[0]] === 'ready') return res.send({status : 'ALREADY_ACTIVATED'});
-    if (decoded[Object.keys(decoded)[0]] !== 'registered') return res.send({status : 'NOT_REGISTERED'});
+    if (decoded[Object.keys(decoded)[0]] === 'ready') {
+      console.log('ALREADY_ACTIVATED');
+      return res.send({status : 'ALREADY_ACTIVATED'});
+    }
+    if (decoded[Object.keys(decoded)[0]] !== 'registered') {
+      console.log('NOT_REGISTERED');
+      return res.send({status : 'NOT_REGISTERED'});
+    }
+    console.log('Activating...');
     submit({voterId : req.body.voterId, verb : 'ready', node : dptNode})
     .then((result) => {
       if (result.status !== 'COMMITTED') {
+        console.log('NOT COMMITED');
         res.send(result);
         return;
       }
@@ -110,14 +129,14 @@ app.post('/api/activate', (req, res) => { // Restricted to DPT
       res.send({error : err});
     });
   });
-
-
-
 });
 
 app.get('/api/dpt-transactions', (req, res) => { // Restricted to admin
   request.get({uri: 'http://' + dptNode + '/transactions'}, (err, resp) => {
-    console.log(JSON.parse(resp.body).data.length);
+    if (!resp.body) {
+      res.send({});
+      return;
+    }
     res.send(JSON.parse(resp.body));
   });
 });
@@ -134,6 +153,9 @@ app.get('/api/dpt-state/:id', (req, res) => {
     if (err) return res.send({error : err});
     let body = JSON.parse(resp.body);
     let data = body.data;
+    if (!data) {
+      return res.send({status : 'NOT_REGISTERED'});
+    }
     let buf = Buffer.from(data, 'base64');
     let decoded = cbor.decode(buf);
     decoded['head'] = body.head;
