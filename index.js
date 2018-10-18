@@ -54,6 +54,10 @@ const dump = (filter) => {
             let buf = Buffer.from(body.data[i].payload, 'base64');
             let decoded = cbor.decode(buf);
             item['state'] = decoded.Value
+            if (filter && filter.state && filter.state !== decoded.Value) {
+              obj.total--;
+              continue;
+            }
             obj.data.push(item);
           }
         }
@@ -143,7 +147,7 @@ app.get('/api/dpt-transactions', (req, res) => { // Restricted to admin
 });
 
 app.get('/api/dpt-dump', (req, res) => { // Restricted to admin
-  dump()
+  dump(req.query)
   .then((result) => {
     res.send(result);
   });
