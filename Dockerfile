@@ -5,7 +5,7 @@ RUN curl -sL https://deb.nodesource.com/setup_8.x | bash -
 RUN apt-get install -y nodejs
 
 COPY ./ .
-RUN echo "node index.js province-dpt-32:11332" >> /bin/server
+RUN echo "node index.js province-dpt-32.skripsi.local:11332" >> /bin/server
 RUN chmod +x /bin/server
 
 CMD ["bash", "-c", "/bin/server"]
