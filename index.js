@@ -125,8 +125,9 @@ app.post('/api/activate', (req, res) => { // Restricted to DPT
       }
       const msg = new Buffer(req.body.r);
       const signature = ed25519.Sign(msg, { privateKey: pk, publicKey: p });
-      console.log('signed key value for ' + req.body.voterId + ' : ' + req.body.r + signature.toString('base64'));
-      let obj = {signedKey : req.body.r + signature.toString('base64'), status : 'READY'};
+      console.log('signed key value for ' + req.body.voterId + ' : ' + req.body.r + '_' + signature.toString('base64'));
+      console.log('The signature, separated : ' + signature.toString('base64'));
+      let obj = {signedKey : req.body.r + '_' + signature.toString('base64'), status : 'READY'};
       res.send(obj);
     })
     .catch((err) => {
