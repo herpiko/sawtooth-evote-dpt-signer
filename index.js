@@ -3,7 +3,10 @@ const {createHash} = require('crypto')
 const express = require('express');
 const bodyParser = require('body-parser');
 const ed25519 = require('ed25519');
+const base64 = require('js-base64').Base64;
 const request = require('request');
+const forge = require('node-forge');
+const pki = forge.pki;
 const cbor = require('cbor')
 const submit = require('./submitter/dpt-admin.js');
 const app = express();
@@ -20,6 +23,12 @@ const publicKey = '0c32c468980d40237f4e44a66dec3beb564b3e1394a4c6df1da2065e3afc1
 const pk = new Buffer(privateKey, 'hex');
 const p = new Buffer(publicKey, 'hex');
 
+// Kunci Suara
+const kunciSuaraPem = fs.readFileSync('./ejbca/KPU_Machines/KunciSuara/kunci_suara.pem', 'utf8');
+const kunciSuara = pki.certificateFromPem(kunciSuaraPem);
+const kunciSuaraPKPem = fs.readFileSync('./ejbca/KPU_Machines/KunciSuara/kunci_suara.plain.key', 'utf8');
+const kunciSuaraPK = pki.privateKeyFromPem(kunciSuaraPKPem);
+
 // TODO mutual auth
 
 const dump = (filter) => {
@@ -35,7 +44,7 @@ const dump = (filter) => {
     let nextUrl;
   
     var get = (next) => {
-      let uri = next || 'http://' + dptNode + '/transactions?limit=100';
+      let uri = next || 'http://' + (filter && filter.dptNode ? filter.dptNode : dptNode) + '/transactions?limit=100';
       console.log('Fetching ' + uri);
       request.get({uri: uri}, (err, resp) => {
         if (err) return reject(err);
@@ -54,6 +63,10 @@ const dump = (filter) => {
             let buf = Buffer.from(body.data[i].payload, 'base64');
             let decoded = cbor.decode(buf);
             item['state'] = decoded.Value
+            if (filter && filter.familyName && filter.familyName !== item.familyName) {
+              obj.total--;
+              continue;
+            }
             if (filter && filter.state && filter.state !== decoded.Value) {
               obj.total--;
               continue;
@@ -78,6 +91,11 @@ app.get('/', (req, res) => {
   body += '<ul>';
   body += '<li><a href="/api/dpt-transactions">DPT transactions</a></li>';
   body += '<li><a href="/api/dpt-dump">DPT dump</a></li>';
+  body += '<li><a href="/api/province-vote-transactions">province vote transactions</a></li>';
+  body += '<li><a href="/api/province-voter-transactions">province voter transactions</a></li>';
+  body += '<li><a href="/api/province-transactions">province transactions</a></li>';
+  body += '<li><a href="/api/tallying">tallying</a></li>';
+  body += '<li><a href="/api/final-report">final report</a></li>';
   body += '</ul>';
   res.send(body);
 });
@@ -169,11 +187,78 @@ app.get('/api/dpt-state/:id', (req, res) => {
   });
 });
 
+app.get('/api/province-transactions', (req, res) => {
+  let filter = { dptNode: 'province-vote-52.skripsi.local:12352'}
+  dump(filter)
+  .then((result) => {
+    res.send(result);
+  });
+});
+
+app.get('/api/province-vote-transactions', (req, res) => {
+  let filter = { dptNode: 'province-vote-52.skripsi.local:12352', familyName: 'provinceVote' }
+  dump(filter)
+  .then((result) => {
+    res.send(result);
+  });
+});
+
+app.get('/api/province-voter-transactions', (req, res) => {
+  let filter = { dptNode: 'province-vote-52.skripsi.local:12352', familyName: 'provinceVoter' }
+  dump(filter)
+  .then((result) => {
+    res.send(result);
+  });
+});
+
+app.get('/api/final-report', (req, res) => {
+  let filter = { dptNode: 'province-vote-52.skripsi.local:12352', familyName: 'final' }
+  dump(filter)
+  .then((result) => {
+    res.send(result);
+  });
+});
+
+app.get('/api/tallying', (req, res) => {
+  let tallyed = []
+  let filter = { dptNode: 'province-vote-52.skripsi.local:12352', familyName: 'provinceVote'}
+  dump(filter)
+  .then((votes) => {
+    filter.familyName = 'provinceVoter';
+    dump(filter)
+    .then((voters) => {
+      if (voters.data.length != votes.data.length) {
+        res.send({error: 'Unmatched length.'});
+        return;
+      }
+      let result = { data: [], candidates: {}};
+      for (let i in votes.data) {
+        let payload = JSON.parse(base64.decode(votes.data[i].state));
+        let key = Object.keys(payload)[0]
+        const p7 = forge.pkcs7.messageFromPem(payload[key].z);
+        p7.decrypt(p7.recipients[0], kunciSuaraPK)
+        if (!result.candidates[p7.content.data]) result.candidates[p7.content.data] = 0;
+        result.candidates[p7.content.data]++;
+        let voter = JSON.parse(base64.decode(voters.data[i].state))
+        payload = { 
+          vote: p7.content.data,
+          idv: key,
+          n: payload[key].n,
+          pairedVoter: voter
+        }
+        let id = voters.data[i].stateId
+        result.data.push(payload)
+      }
+      res.send(result);
+    });
+  });
+});
+
 // SSL keys
 const options = {
-  key : fs.readFileSync('./certs/KPU_Machines/EvoteServer/evote-server.skripsi.local.plain.key'),
-  cert : fs.readFileSync('./certs/KPU_Machines/EvoteServer/evote-server.skripsi.local.pem'),
-  ca : fs.readFileSync('./certs/CA/KPUIntermediateCA-chain.pem'),
+  key : fs.readFileSync('./ejbca/KPU_Machines/EvoteServer/evote-server.skripsi.local.plain.key'),
+  cert : fs.readFileSync('./ejbca/KPU_Machines/EvoteServer/evote-server.skripsi.local.pem'),
+  ca : fs.readFileSync('./ejbca/CA/KPUIntermediateCA-chain.pem'),
   requestCert : true,
 }
 
